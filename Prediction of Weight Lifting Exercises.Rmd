@@ -1,0 +1,174 @@
+---
+title: "Prediction of Weight Lifting Exercises"
+author: "Aditya"
+date: "October 10, 2017"
+output: html_document
+---
+***
+# Synopsis
+ 
+####*This Report captures the Analysis to Predict the Activity Recognition of Weight Lifting Exercises.* 
+####*Devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. The quality of executing an activity, the "how (well)", has only received little attention so far, even though it potentially provides useful information for a large variety of applications.*
+
+####*The Data in this project is collected from Sensors mounted on user's glove, armband, lumbar belt and dumbbell when participants performed a set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:*   
+
+* (Class A) Exactly according to the specification.
+* (Class B) Throwing the elbows to the front.
+* (Class c) Lifting the dumbbell only halfway.
+* (Class D) Lowering the dumbbell only halfway.
+* (Class E) Throwing the hips to the front.
+
+####*The goal of the project is to predict the manner in which they did the exercise*   
+
+# Report Section
+```{r loading packages,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    library("markdown")
+    library("rmarkdown")
+    library("knitr")
+    library("ggplot2")
+    library("caret")
+    library("corrplot")
+    library("doParallel")
+```
+
+## Setting Work Directory and downloading the files from Source
+```{r Setting Work Directory,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+
+    setwd("G:/Data Science Project/Practical Machine Learning/Wk4/Project")
+
+    #download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv")
+    #download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testing.csv")
+```
+
+## Reading the files into R by interpreting the strings ('#DIV/0!','','NA') as NA values
+```{r Reading files,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    training <- read.csv(file = "training.csv",header = TRUE,sep = "," ,
+                         na.strings = c('#DIV/0!','','NA'), stringsAsFactors = FALSE)
+    testing  <- read.csv(file = "testing.csv", header = TRUE,sep = "," ,
+                         na.strings = c('#DIV/0!','','NA'), stringsAsFactors = FALSE)
+```
+
+## To check the structure of the table
+```{r check structure,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    dim(training)
+    #kable(str(training))
+    sum(is.na.data.frame(training))
+```
+
+## Fill Ratio of the variables in the Training and Testing Tables
+```{r Fill Ratio,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    fillratio_train <- data.frame(ratio= round(colSums(!is.na(training))/nrow(training), digits=2))
+    table(fillratio_train)
+
+    fillratio_test <- data.frame(ratio= round(colSums(!is.na(testing))/nrow(testing), digits=2))
+    table(fillratio_test)
+
+### So 60 variables in both training and testing dataset are having 100% fill ratio and nearly 100 variables in both datasets are having 0% fill ratio
+```
+
+## checking if the same variables are missing in both datasets
+```{r checking same variables,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+# outputs Testing set variable name which mismatches with training set variable list
+    names(testing)[names(training)!=names(testing)] 
+# outputs Training set variable name which mismatches with testing set variable list
+    names(training)[names(training)!=names(testing)]
+
+    which(colnames(training)=="classe") # COlumn Index of the mismatched variable
+
+    kable(confusionMatrix(round(fillratio_train[-160,],0),fillratio_test[-160,])$table)
+# The Confusion Matrix confirms 100 variables in both testing and training datasets are missing
+
+    training1 <- subset(training, select = (fillratio_train==1))
+    testing1  <- subset(testing, select = (fillratio_test==1))
+```
+
+
+## Checking the distribution of classe variable
+```{r Checking distribution,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    table(training1$classe)
+    table(training1$user_name,training1$classe)
+```
+
+```{r Identification NZR,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+# Identification of Near Zero Variance Predictors
+    nearZeroVar(training1, names = TRUE)
+
+# Removing the user_name, Timestamp and window variables 
+    var_drop <- grep(pattern="^X$|user|timestamp|window", names(training1))
+    training2 <- subset.data.frame(training1, select=-c(var_drop))
+
+# Slicing the training2 dataset into train and test datasets 
+    inTrain <- createDataPartition(training2$classe,p = .75,list = FALSE)
+    train_data <- training2[inTrain,]
+    test_data  <- training2[-inTrain,]
+```
+
+
+## Generating Correlation Matrix excluding the Classe categorical variable   
+```{r Gen Correlation Matrix,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+fa_cor <- cor(x = train_data[,-53])
+    diag(fa_cor) <- 0  # Setting the Diagonal values to 0 as its correlation of same variables  
+    
+# Correlation plot of the correlation Matrix
+    corrplot(fa_cor, tl.pos = "lt", order="hclust", hclust.method="complete",type = "lower",tl.cex = .6)
+    
+# To generate the variables which are 90% highly correlated with eachother
+    kable(which(fa_cor>0.9, arr.ind = TRUE))
+    names(train_data)[c(1,4,9,33,46)]  
+```
+
+### Below plots are generated as part of EDA process. 
+### Few of the plots are selected out of various built where there's a clarity of distinction in classe variables.
+```{r GG plots,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis',fig.width=6,fig.height=1.5}
+    ggplot(data = train_data, mapping = aes(x=accel_belt_y , y=roll_belt, col=classe))+geom_point(alpha=0.5)
+    ggplot(data = train_data, mapping = aes(x=total_accel_forearm , y=pitch_forearm, col=classe))+geom_point(alpha=0.3)
+    ggplot(data = train_data, mapping = aes(x=pitch_forearm , y=roll_belt, col=classe))+geom_point(alpha=0.3)
+```
+
+
+## Configuring Parallel Processing
+```{r Configuring PP,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    cluster <- makeCluster(detectCores() - 1)
+    registerDoParallel(cluster)
+    
+## Configuring Train COntrol Object and Developing Train Model
+    fitControl <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
+    system.time(rf_model <- train(classe ~ ., method="rf", data = train_data, trControl=fitControl, ntree=100))
+
+## De-registering parallel processing cluster
+    stopCluster(cluster)
+    registerDoSEQ()
+```
+
+
+## Generating Confusion matrix for Train model built
+```{r Gen CM Train,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'} 
+    kable(round(confusionMatrix.train(rf_model)$table,1))
+
+## Printing the Final MOdel built
+    rf_model$finalModel
+
+```
+
+## Predicting the results for Test_data and generating the confusion matrix
+```{r Predicting test,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    test_results <- predict(object =rf_model,newdata = test_data  )
+    confusionMatrix(test_results, test_data$classe)
+    
+## Error rate
+    #### Train dataset:
+    sum(rf_model$finalModel$predicted!=train_data$classe)/length(train_data$classe) 
+    #### Test dataset:
+    sum(test_results!=test_data$classe)/length(test_data$classe)
+    
+## Generating the Variable Importance plot for the final model
+    varImpPlot(rf_model$finalModel)
+```    
+## The Test Data set is predicted at a 99.6% Accuracy and Out of Bound Error rate is 0.6%
+## The roll_belt, pitch_forearm and Yaw_belt are the Top 3 Important Predictors of the Random Forest Model Built
+
+# Predicting the results for Final Test Dataset
+```{r predict Final test,echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='asis'}
+    final_test_results <- predict(object=rf_model, testing)
+    final_test_results
+```
